@@ -100,7 +100,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
     switch(event)
     {
         case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT: {
-            uint32_t duration = 0;
+            uint32_t duration = 10000;
             esp_ble_gap_start_scanning(duration);
             break;
         }
@@ -134,20 +134,25 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                         ESP_LOGI(DEMO_TAG, "RSSI of packet:%d dbm", scan_result->scan_rst.rssi);
                         esp_eddystone_show_inform(&eddystone_res);
 
-                        if(scan_result->scan_rst == 0x01){
-                            gpio_set_level(GPIO_OUTPUT_IO_0, 1);
-                            vTaskDelay(1000 / portTICK_PERIOD_MS);
-                            gpio_set_level(GPIO_OUTPUT_IO_0, 0);
-                        }
-                        else if(scan_result->scan_rst == 0x02){
-                            gpio_set_level(GPIO_OUTPUT_IO_1, 1);
-                            vTaskDelay(1000 / portTICK_PERIOD_MS);
-                            gpio_set_level(GPIO_OUTPUT_IO_1, 0);
-                        }
-                        else{
-                            gpio_set_level(GPIO_OUTPUT_IO_0, 0);
-                            gpio_set_level(GPIO_OUTPUT_IO_1, 0);
-                        }
+                        // if (eddystone_res.common.frame_type == EDDYSTONE_FRAME_TYPE_UID)
+                        // {
+                        //     if(eddystone_res.inform.uid.namespace_id[0] == 0x01){
+                        //         gpio_set_level(GPIO_OUTPUT_IO_0, 1);
+                        //     }
+                        //     else if(eddystone_res.inform.uid.namespace_id[0] == 0x02){
+                        //         gpio_set_level(GPIO_OUTPUT_IO_0, 0);
+                        //     }
+                        // }
+                        // else if (eddystone_res.common.frame_type == EDDYSTONE_FRAME_TYPE_URL)
+                        // {
+                        //     /* code */
+                        // }
+                        // else if (eddystone_res.common.frame_type == EDDYSTONE_FRAME_TYPE_TLM)
+                        // {
+                        //     /* code */
+                        // }
+                        
+                    
 
                     }
                     break;
@@ -194,20 +199,20 @@ void esp_eddystone_init(void)
 
 void app_main(void)
 {
-    //zero-initialize the config structure.
-    gpio_config_t io_conf = {};
-    //disable interrupt
-    io_conf.intr_type = GPIO_INTR_DISABLE;
-    //set as output mode
-    io_conf.mode = GPIO_MODE_OUTPUT;
-    //bit mask of the pins that you want to set,e.g.GPIO18/19
-    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
-    //disable pull-down mode
-    io_conf.pull_down_en = 0;
-    //disable pull-up mode
-    io_conf.pull_up_en = 0;
-    //configure GPIO with the given settings
-    gpio_config(&io_conf);
+    // //zero-initialize the config structure.
+    // gpio_config_t io_conf = {};
+    // //disable interrupt
+    // io_conf.intr_type = GPIO_INTR_DISABLE;
+    // //set as output mode
+    // io_conf.mode = GPIO_MODE_OUTPUT;
+    // //bit mask of the pins that you want to set,e.g.GPIO18/19
+    // io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    // //disable pull-down mode
+    // io_conf.pull_down_en = 0;
+    // //disable pull-up mode
+    // io_conf.pull_up_en = 0;
+    // //configure GPIO with the given settings
+    // gpio_config(&io_conf);
 
 
 
@@ -221,4 +226,6 @@ void app_main(void)
 
     /*<! set scan parameters */
     esp_ble_gap_set_scan_params(&ble_scan_params);
+
+    
 }
