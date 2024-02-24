@@ -33,16 +33,9 @@
 #include "esp_eddystone_protocol.h"
 #include "esp_eddystone_api.h"
 
-#define GPIO_OUTPUT_IO_0     18 
-#define GPIO_OUTPUT_IO_1     19
-#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_0) | (1ULL<<GPIO_OUTPUT_IO_1))
-/*
- * Let's say, GPIO_OUTPUT_IO_0=18, GPIO_OUTPUT_IO_1=19
- * In binary representation,
- * 1ULL<<GPIO_OUTPUT_IO_0 is equal to 0000000000000000000001000000000000000000 and
- * 1ULL<<GPIO_OUTPUT_IO_1 is equal to 0000000000000000000010000000000000000000
- * GPIO_OUTPUT_PIN_SEL                0000000000000000000011000000000000000000
- * */
+#define GPIO_OUTPUT_IO_0     2 
+#define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_0))
+
 
 
 static const char* DEMO_TAG = "EDDYSTONE_DEMO";
@@ -134,23 +127,16 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                         ESP_LOGI(DEMO_TAG, "RSSI of packet:%d dbm", scan_result->scan_rst.rssi);
                         esp_eddystone_show_inform(&eddystone_res);
 
-                        // if (eddystone_res.common.frame_type == EDDYSTONE_FRAME_TYPE_UID)
-                        // {
-                        //     if(eddystone_res.inform.uid.namespace_id[0] == 0x01){
-                        //         gpio_set_level(GPIO_OUTPUT_IO_0, 1);
-                        //     }
-                        //     else if(eddystone_res.inform.uid.namespace_id[0] == 0x02){
-                        //         gpio_set_level(GPIO_OUTPUT_IO_0, 0);
-                        //     }
-                        // }
-                        // else if (eddystone_res.common.frame_type == EDDYSTONE_FRAME_TYPE_URL)
-                        // {
-                        //     /* code */
-                        // }
-                        // else if (eddystone_res.common.frame_type == EDDYSTONE_FRAME_TYPE_TLM)
-                        // {
-                        //     /* code */
-                        // }
+                        if (eddystone_res.common.frame_type == EDDYSTONE_FRAME_TYPE_UID)
+                        {
+                            if(eddystone_res.inform.uid.namespace_id[0] == 0x01){
+                                gpio_set_level(GPIO_OUTPUT_IO_0, 1);
+                            }
+                            else if(eddystone_res.inform.uid.namespace_id[0] == 0x02){
+                                gpio_set_level(GPIO_OUTPUT_IO_0, 0);
+                            }
+                        }
+                        
                         
                     
 
@@ -200,19 +186,19 @@ void esp_eddystone_init(void)
 void app_main(void)
 {
     // //zero-initialize the config structure.
-    // gpio_config_t io_conf = {};
+    gpio_config_t io_conf = {};
     // //disable interrupt
-    // io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
     // //set as output mode
-    // io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.mode = GPIO_MODE_OUTPUT;
     // //bit mask of the pins that you want to set,e.g.GPIO18/19
-    // io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
+    io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
     // //disable pull-down mode
-    // io_conf.pull_down_en = 0;
+    io_conf.pull_down_en = 0;
     // //disable pull-up mode
-    // io_conf.pull_up_en = 0;
+    io_conf.pull_up_en = 0;
     // //configure GPIO with the given settings
-    // gpio_config(&io_conf);
+    gpio_config(&io_conf);
 
 
 
