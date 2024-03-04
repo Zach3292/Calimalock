@@ -33,12 +33,14 @@
 #include "esp_eddystone_protocol.h"
 #include "esp_eddystone_api.h"
 
+#include "led_strip.h"
+
+
 #define GPIO_OUTPUT_IO_0     2 
 #define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_0))
 
-
-
 static const char* DEMO_TAG = "EDDYSTONE_DEMO";
+
 
 /* declare static functions */
 static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param);
@@ -128,18 +130,21 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                         esp_eddystone_show_inform(&eddystone_res);
 
                         if (eddystone_res.common.frame_type == EDDYSTONE_FRAME_TYPE_UID)
-                        {
-                            if(eddystone_res.inform.uid.namespace_id[0] == 0x01){
+                        {   
+                            if (eddystone_res.inform.uid.namespace_id[0] == 0x00)
+                            {
+                                // ajouter une fonction qui allume les LEDs
+                                // ajouter un interrupt update pour le bouton pour unlock
+                                // ajouter un interrupt update pour le reed pour unlock
+
+                            }
+                            else if(eddystone_res.inform.uid.namespace_id[0] == 0x01){
                                 gpio_set_level(GPIO_OUTPUT_IO_0, 1);
                             }
                             else if(eddystone_res.inform.uid.namespace_id[0] == 0x02){
                                 gpio_set_level(GPIO_OUTPUT_IO_0, 0);
                             }
                         }
-                        
-                        
-                    
-
                     }
                     break;
                 }
