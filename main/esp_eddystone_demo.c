@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
 
@@ -36,7 +37,7 @@
 #include "led_strip.h"
 
 // GPIO assignment
-#define LED_STRIP__GPIO 3
+#define LED_STRIP_GPIO 3
 // Numbers of the LED in the strip
 #define LED_STRIP_LED_NUMBERS 12
 // 10MHz resolution, 1 tick = 0.1us (led strip needs a high resolution)
@@ -45,14 +46,34 @@
 #define GPIO_OUTPUT_IO_0     2 
 #define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_0))
 
-static const char* DEMO_TAG = "EDDYSTONE_DEMO";
+#define GPIO_INPUT_A  4
+#define GPIO_INPUT_B  5
+#define GPIO_INPUT_PIN_SEL  ((1ULL<<GPIO_INPUT_A) | (1ULL<<GPIO_INPUT_B))
+
+#define ESP_INTR_FLAG_DEFAULT 0
+
+static QueueHandle_t gpio_evt_queue = NULL;
+
+static void IRAM_ATTR gpio_isr_handler(void* arg)
+{
+    uint32_t gpio_num = (uint32_t) arg;
+    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
+}
+
+
+led_strip_handle_t led_strip;
+
+static const char* DEMO_TAG = "EDDYSTONE";
 static const char* TAG = "LED_STRIP";
+
+bool unlocked = false;
+bool button_pressed = false;
 
 led_strip_handle_t configure_led(void)
 {
     // LED strip general initialization, according to your led board design
     led_strip_config_t strip_config = {
-        .strip_gpio_num = LED_STRIP_BLINK_GPIO,   // The GPIO that connected to the LED strip's data line
+        .strip_gpio_num = LED_STRIP_GPIO,   // The GPIO that connected to the LED strip's data line
         .max_leds = LED_STRIP_LED_NUMBERS,        // The number of LEDs in the strip,
         .led_pixel_format = LED_PIXEL_FORMAT_GRB, // Pixel format of your LED strip
         .led_model = LED_MODEL_WS2812,            // LED strip model
@@ -75,6 +96,37 @@ led_strip_handle_t configure_led(void)
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
     ESP_LOGI(TAG, "Created LED strip object with RMT backend");
     return led_strip;
+}
+
+static void set_led_fill(led_strip_handle_t led_strip, uint8_t red, uint8_t green, uint8_t blue){
+    /* Set the LED pixel using RGB from 0 (0%) to 255 (100%) for each color */
+    for (int i = 0; i < LED_STRIP_LED_NUMBERS; i++) {
+        ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, i, red, green, blue));
+    }
+    /* Refresh the strip to send data */
+    ESP_ERROR_CHECK(led_strip_refresh(led_strip));
+}
+
+static void clear_led(led_strip_handle_t led_strip){
+    ESP_ERROR_CHECK(led_strip_clear(led_strip));
+    ESP_ERROR_CHECK(led_strip_refresh(led_strip));
+}
+
+static void open_lock_intr(void* arg)
+{
+    uint32_t io_num;
+    for (;;) {
+        if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
+            if (io_num == GPIO_INPUT_A)
+            {   
+                button_pressed = true;
+            }
+            else if (io_num == GPIO_INPUT_B)
+            {
+                unlocked = true;
+            }  
+        }
+    }
 }
 
 /* declare static functions */
@@ -130,7 +182,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
     switch(event)
     {
         case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT: {
-            uint32_t duration = 10000;
+            uint32_t duration = 0;
             esp_ble_gap_start_scanning(duration);
             break;
         }
@@ -166,18 +218,18 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
 
                         if (eddystone_res.common.frame_type == EDDYSTONE_FRAME_TYPE_UID)
                         {   
-                            if (eddystone_res.inform.uid.namespace_id[0] == 0x00)
+                            if (eddystone_res.inform.uid.namespace_id[0] == 0x03)
                             {
-                                // ajouter une fonction qui allume les LEDs
-                                // ajouter un interrupt update pour le bouton pour unlock
-                                // ajouter un interrupt update pour le reed pour unlock
-
-                            }
-                            else if(eddystone_res.inform.uid.namespace_id[0] == 0x01){
-                                gpio_set_level(GPIO_OUTPUT_IO_0, 1);
-                            }
-                            else if(eddystone_res.inform.uid.namespace_id[0] == 0x02){
-                                gpio_set_level(GPIO_OUTPUT_IO_0, 0);
+                                if (eddystone_res.inform.uid.namespace_id[1] == 0x00)
+                                {
+                                    unlocked = false; 
+                                } else if (eddystone_res.inform.uid.namespace_id[1] == 0x01)
+                                {
+                                    unlocked = true;
+                                }  
+                            }else if (eddystone_res.inform.uid.namespace_id[0] == 0x06)
+                            {
+                                esp_restart();
                             }
                         }
                     }
@@ -223,37 +275,88 @@ void esp_eddystone_init(void)
     esp_eddystone_appRegister();
 }
 
-void set_led_fill(led_strip_handle_t led_strip, uint8_t red, uint8_t green, uint8_t blue){
-    /* Set the LED pixel using RGB from 0 (0%) to 255 (100%) for each color */
-    for (int i = 0; i < LED_STRIP_LED_NUMBERS; i++) {
-        ESP_ERROR_CHECK(led_strip_set_pixel(led_strip, i, red, green, blue));
-    }
-    /* Refresh the strip to send data */
-    ESP_ERROR_CHECK(led_strip_refresh(led_strip));
+
+void loop()
+{
+    if (button_pressed == true)
+        {
+            if (unlocked == true)
+            {
+                gpio_set_level(GPIO_OUTPUT_IO_0, 1);
+                for (size_t i = 0; i < 5; i++)
+                {
+                    set_led_fill(led_strip, 0, 10, 0);
+                    vTaskDelay(100 / portTICK_PERIOD_MS);
+                    clear_led(led_strip);
+                    vTaskDelay(100 / portTICK_PERIOD_MS);
+                }
+                vTaskDelay(5000 / portTICK_PERIOD_MS);
+                gpio_set_level(GPIO_OUTPUT_IO_0, 0);
+            } else{
+                for (size_t i = 0; i < 5; i++)
+                {
+                    set_led_fill(led_strip, 10, 0, 0);
+                    vTaskDelay(100 / portTICK_PERIOD_MS);
+                    clear_led(led_strip);
+                    vTaskDelay(100 / portTICK_PERIOD_MS);
+                }
+            }
+            button_pressed = false;
+        }
 }
 
-void clear_led(led_strip_handle_t led_strip){
-    ESP_ERROR_CHECK(led_strip_clear(led_strip));
+void loopTask(void *pvParameters)
+{
+    for(;;) {
+        loop();
+        vTaskDelay(1 / portTICK_PERIOD_MS);
+    }
 }
+
 
 void app_main(void)
 {
-    // //zero-initialize the config structure.
+    //zero-initialize the config structure.
     gpio_config_t io_conf = {};
-    // //disable interrupt
+    //disable interrupt
     io_conf.intr_type = GPIO_INTR_DISABLE;
-    // //set as output mode
+    //set as output mode
     io_conf.mode = GPIO_MODE_OUTPUT;
-    // //bit mask of the pins that you want to set,e.g.GPIO18/19
+    //bit mask of the pins that you want to set,e.g.GPIO2
     io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
-    // //disable pull-down mode
+    //disable pull-down mode
     io_conf.pull_down_en = 0;
-    // //disable pull-up mode
+    //disable pull-up mode
     io_conf.pull_up_en = 0;
-    // //configure GPIO with the given settings
+    //configure GPIO with the given settings
     gpio_config(&io_conf);
 
-    led_strip_handle_t led_strip = configure_led();
+    //interrupt of rising edge
+    io_conf.intr_type = GPIO_INTR_NEGEDGE;
+    //bit mask of the pins, use GPIO4/5 here
+    io_conf.pin_bit_mask = GPIO_INPUT_PIN_SEL;
+    //set as input mode
+    io_conf.mode = GPIO_MODE_INPUT;
+    //enable pull-up mode
+    io_conf.pull_up_en = 1;
+    gpio_config(&io_conf);
+
+    //create a queue to handle gpio event from isr
+    gpio_evt_queue = xQueueCreate(1, sizeof(uint32_t));
+    //start gpio task
+    xTaskCreate(open_lock_intr, "open_lock_intr", 2048, NULL, 10, NULL);
+
+    //install gpio isr service
+    gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
+    //hook isr handler for specific gpio pin
+    gpio_isr_handler_add(GPIO_INPUT_A, gpio_isr_handler, (void*) GPIO_INPUT_A);
+    //hook isr handler for specific gpio pin
+    gpio_isr_handler_add(GPIO_INPUT_B, gpio_isr_handler, (void*) GPIO_INPUT_B);
+
+    gpio_set_level(GPIO_OUTPUT_IO_0, 0);
+
+    led_strip = configure_led();
+    clear_led(led_strip);
 
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
@@ -266,5 +369,6 @@ void app_main(void)
     /*<! set scan parameters */
     esp_ble_gap_set_scan_params(&ble_scan_params);
 
-    
+    xTaskCreate(loopTask, "loopTask", 8192, NULL, 1, NULL);
 }
+
