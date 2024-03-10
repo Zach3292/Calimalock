@@ -15,6 +15,7 @@
     "idf.pythonBinPath": "/Users/zacharieroy/.espressif/python_env/idf5.2_py3.11_env/bin/python",
     "idf.toolsPath": "/Users/zacharieroy/.espressif",
     "files.associations": {
-        "led_strip.h": "c"
+        "led_strip.h": "c",
+        "esp_eddystone_protocol.h": "c"
     }
 }

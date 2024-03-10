@@ -231,6 +231,10 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                             {
                                 esp_restart();
                             }
+                            else if (eddystone_res.inform.uid.namespace_id[0] == 0xFB)
+                            {
+                                // battery check avec led
+                            }
                         }
                     }
                     break;
