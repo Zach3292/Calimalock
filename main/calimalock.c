@@ -34,6 +34,12 @@
 #include "esp_eddystone_protocol.h"
 #include "esp_eddystone_api.h"
 
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
+
+#include "soc/soc_caps.h"
+
 #include "led_strip.h"
 
 // GPIO assignment
@@ -43,7 +49,7 @@
 // 10MHz resolution, 1 tick = 0.1us (led strip needs a high resolution)
 #define LED_STRIP_RMT_RES_HZ  (10 * 1000 * 1000)
 
-#define GPIO_OUTPUT_IO_0     2 
+#define GPIO_OUTPUT_IO_0     10
 #define GPIO_OUTPUT_PIN_SEL  ((1ULL<<GPIO_OUTPUT_IO_0))
 
 #define GPIO_INPUT_A  4
@@ -51,6 +57,18 @@
 #define GPIO_INPUT_PIN_SEL  ((1ULL<<GPIO_INPUT_A) | (1ULL<<GPIO_INPUT_B))
 
 #define ESP_INTR_FLAG_DEFAULT 0
+
+
+#define EXAMPLE_ADC1_CHAN0          ADC_CHANNEL_2 // Should be change to the right pin
+
+#define EXAMPLE_ADC_ATTEN           ADC_ATTEN_DB_12
+
+static const double voltage_treshold = 3.6; // Should be change to the right value;
+
+static int adc_raw[2][10];
+static int voltage[2][10];
+static bool example_adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle);
+static void example_adc_calibration_deinit(adc_cali_handle_t handle);
 
 static QueueHandle_t gpio_evt_queue = NULL;
 
@@ -65,9 +83,11 @@ led_strip_handle_t led_strip;
 
 static const char* DEMO_TAG = "EDDYSTONE";
 static const char* TAG = "LED_STRIP";
+static const char* BATTERY_TAG = "BATTERY";
 
 bool unlocked = false;
 bool button_pressed = false;
+bool battery_check = false;
 
 led_strip_handle_t configure_led(void)
 {
@@ -233,7 +253,7 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
                             }
                             else if (eddystone_res.inform.uid.namespace_id[0] == 0xFB)
                             {
-                                // battery check avec led
+                                battery_check = true;
                             }
                         }
                     }
@@ -279,34 +299,139 @@ void esp_eddystone_init(void)
     esp_eddystone_appRegister();
 }
 
+static bool example_adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle)
+{
+    adc_cali_handle_t handle = NULL;
+    esp_err_t ret = ESP_FAIL;
+    bool calibrated = false;
+
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    if (!calibrated) {
+        ESP_LOGI(BATTERY_TAG, "calibration scheme version is %s", "Curve Fitting");
+        adc_cali_curve_fitting_config_t cali_config = {
+            .unit_id = unit,
+            .chan = channel,
+            .atten = atten,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        ret = adc_cali_create_scheme_curve_fitting(&cali_config, &handle);
+        if (ret == ESP_OK) {
+            calibrated = true;
+        }
+    }
+#endif
+
+#if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    if (!calibrated) {
+        ESP_LOGI(BATTERY_TAG, "calibration scheme version is %s", "Line Fitting");
+        adc_cali_line_fitting_config_t cali_config = {
+            .unit_id = unit,
+            .atten = atten,
+            .bitwidth = ADC_BITWIDTH_DEFAULT,
+        };
+        ret = adc_cali_create_scheme_line_fitting(&cali_config, &handle);
+        if (ret == ESP_OK) {
+            calibrated = true;
+        }
+    }
+#endif
+
+    *out_handle = handle;
+    if (ret == ESP_OK) {
+        ESP_LOGI(BATTERY_TAG, "Calibration Success");
+    } else if (ret == ESP_ERR_NOT_SUPPORTED || !calibrated) {
+        ESP_LOGW(BATTERY_TAG, "eFuse not burnt, skip software calibration");
+    } else {
+        ESP_LOGE(BATTERY_TAG, "Invalid arg or no memory");
+    }
+
+    return calibrated;
+}
+
+static void example_adc_calibration_deinit(adc_cali_handle_t handle)
+{
+#if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
+    ESP_LOGI(BATTERY_TAG, "deregister %s calibration scheme", "Curve Fitting");
+    ESP_ERROR_CHECK(adc_cali_delete_scheme_curve_fitting(handle));
+
+#elif ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
+    ESP_LOGI(BATTERY_TAG, "deregister %s calibration scheme", "Line Fitting");
+    ESP_ERROR_CHECK(adc_cali_delete_scheme_line_fitting(handle));
+#endif
+}
+
+
+double readBatteryVoltage(){
+    adc_oneshot_unit_handle_t adc1_handle;
+    adc_oneshot_unit_init_cfg_t init_config1 = {
+        .unit_id = ADC_UNIT_1,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+
+    //-------------ADC1 Config---------------//
+    adc_oneshot_chan_cfg_t config = {
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+        .atten = EXAMPLE_ADC_ATTEN,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, EXAMPLE_ADC1_CHAN0, &config));
+    adc_cali_handle_t adc1_cali_chan0_handle = NULL;
+    bool do_calibration1_chan0 = example_adc_calibration_init(ADC_UNIT_1, EXAMPLE_ADC1_CHAN0, EXAMPLE_ADC_ATTEN, &adc1_cali_chan0_handle);
+
+    ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, EXAMPLE_ADC1_CHAN0, &adc_raw[0][0]));
+    ESP_LOGI(TAG, "ADC%d Channel[%d] Raw Data: %d", ADC_UNIT_1 + 1, EXAMPLE_ADC1_CHAN0, adc_raw[0][0]);
+    if (do_calibration1_chan0) {
+        ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_chan0_handle, adc_raw[0][0], &voltage[0][0]));
+        ESP_LOGI(TAG, "ADC%d Channel[%d] Cali Voltage: %d mV", ADC_UNIT_1 + 1, EXAMPLE_ADC1_CHAN0, voltage[0][0]);
+    }
+    ESP_ERROR_CHECK(adc_oneshot_del_unit(adc1_handle));
+    if (do_calibration1_chan0) {
+        example_adc_calibration_deinit(adc1_cali_chan0_handle);
+    }
+    return voltage[0][0];
+}
 
 void loop()
 {
     if (button_pressed == true)
+    {
+        if (unlocked == true)
         {
-            if (unlocked == true)
+            gpio_set_level(GPIO_OUTPUT_IO_0, 1);
+            for (size_t i = 0; i < 5; i++)
             {
-                gpio_set_level(GPIO_OUTPUT_IO_0, 1);
-                for (size_t i = 0; i < 5; i++)
-                {
-                    set_led_fill(led_strip, 0, 10, 0);
-                    vTaskDelay(100 / portTICK_PERIOD_MS);
-                    clear_led(led_strip);
-                    vTaskDelay(100 / portTICK_PERIOD_MS);
-                }
-                vTaskDelay(5000 / portTICK_PERIOD_MS);
-                gpio_set_level(GPIO_OUTPUT_IO_0, 0);
-            } else{
-                for (size_t i = 0; i < 5; i++)
-                {
-                    set_led_fill(led_strip, 10, 0, 0);
-                    vTaskDelay(100 / portTICK_PERIOD_MS);
-                    clear_led(led_strip);
-                    vTaskDelay(100 / portTICK_PERIOD_MS);
-                }
+                set_led_fill(led_strip, 0, 10, 0);
+                vTaskDelay(100 / portTICK_PERIOD_MS);
+                clear_led(led_strip);
+                vTaskDelay(100 / portTICK_PERIOD_MS);
             }
-            button_pressed = false;
+            vTaskDelay(5000 / portTICK_PERIOD_MS);
+            gpio_set_level(GPIO_OUTPUT_IO_0, 0);
+        } else
+        {
+            for (size_t i = 0; i < 5; i++)
+            {
+                set_led_fill(led_strip, 10, 0, 0);
+                vTaskDelay(100 / portTICK_PERIOD_MS);
+                clear_led(led_strip);
+                vTaskDelay(100 / portTICK_PERIOD_MS);
+            }
         }
+        button_pressed = false;
+    } else if (battery_check == true)
+    {
+        if (readBatteryVoltage() > voltage_treshold)
+        {
+                set_led_fill(led_strip, 0, 10, 0);
+                vTaskDelay(5000 / portTICK_PERIOD_MS);
+                clear_led(led_strip);
+        } else
+        {
+                set_led_fill(led_strip, 10, 0, 0);
+                vTaskDelay(5000 / portTICK_PERIOD_MS);
+                clear_led(led_strip);
+        battery_check = false;
+    }   
+    }
 }
 
 void loopTask(void *pvParameters)
@@ -316,6 +441,8 @@ void loopTask(void *pvParameters)
         vTaskDelay(1 / portTICK_PERIOD_MS);
     }
 }
+
+
 
 
 void app_main(void)
