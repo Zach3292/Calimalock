@@ -161,7 +161,7 @@ static esp_ble_adv_data_t ble_adv_data = {
     .service_data_len = 0,
     .p_service_data = NULL,
     .service_uuid_len = 32,
-    .p_service_uuid = NULL,
+    .p_service_uuid = NULL, // à changer les ettings pour broadcast les données qu'on veut
     .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
 };
 
