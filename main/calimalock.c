@@ -149,6 +149,33 @@ static void open_lock_intr(void* arg)
     }
 }
 
+static esp_ble_adv_data_t ble_adv_data = {
+    .set_scan_rsp = false,
+    .include_name = true,
+    .include_txpower = true,
+    .min_interval = 0x0006,
+    .max_interval = 0x0010,
+    .appearance = 0x00,
+    .manufacturer_len = 0, //TEST_MANUFACTURER_DATA_LEN,
+    .p_manufacturer_data =  NULL, //&test_manufacturer[0],
+    .service_data_len = 0,
+    .p_service_data = NULL,
+    .service_uuid_len = 32,
+    .p_service_uuid = NULL,
+    .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
+};
+
+
+static esp_ble_adv_params_t ble_adv_params = {
+    .adv_int_min        = 0x20,
+    .adv_int_max        = 0x40,
+    .adv_type           = ADV_TYPE_IND,
+    .own_addr_type      = BLE_ADDR_TYPE_PUBLIC,
+    //.peer_addr            =
+    //.peer_addr_type       =
+    .channel_map        = ADV_CHNL_ALL,
+    .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
+};
 /* declare static functions */
 static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param);
 static void esp_eddystone_show_inform(const esp_eddystone_result_t* res);
@@ -270,6 +297,31 @@ static void esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* par
             }
             else {
                 ESP_LOGI(DEMO_TAG,"Stop scan successfully");
+            }
+            break;
+        }
+        case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:{
+            if((err = param->adv_data_raw_cmpl.status) != ESP_BT_STATUS_SUCCESS) {
+                ESP_LOGE(DEMO_TAG,"Set raw adv data failed: %s", esp_err_to_name(err));
+            }
+            else {
+                ESP_LOGI(DEMO_TAG,"Set raw adv data successfully");
+                esp_ble_gap_start_advertising(&ble_adv_params); // always broadcast?
+            }
+            break;
+        }
+        case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:{
+            //advertising start complete event to indicate advertising start successfully or failed
+            if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
+                ESP_LOGE(DEMO_TAG, "Advertising start failed");
+            }
+            break;
+        }
+        case ESP_GAP_BLE_ADV_STOP_COMPLETE_EVT:{
+            if (param->adv_stop_cmpl.status != ESP_BT_STATUS_SUCCESS) {
+                ESP_LOGE(DEMO_TAG, "Advertising stop failed");
+            } else {
+                ESP_LOGI(DEMO_TAG, "Stop adv successfully");
             }
             break;
         }
